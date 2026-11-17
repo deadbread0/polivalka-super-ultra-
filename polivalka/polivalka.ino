@@ -18,8 +18,8 @@
 // 9 - шаговый двигатель 
 // 10 - шаговый двигатель
 // 11 - шаговый двигатель
-// 12 - шаговый двигатель (питание от батарейки)
-// 13 - реле (насос) (насос питается от батарейки)
+// 12 - шаговый двигатель (питание от розетки)
+// 13 - реле (насос) (насос питается от розетки)
 
 #include <SoftwareSerial.h>
 #include <Wire.h>
@@ -27,17 +27,23 @@
 #include <LiquidCrystal_I2C.h>
 #include <Servo.h>
 #include <OneWire.h>
+#include "HX711.h"
 
 #include "polivalka_include.h"
 
 Servo servo1;
 LiquidCrystal_I2C lcd(0x27,16,2);  // Устанавливаем дисплей
 
-const int amount_of_mods = 2;
+const int amount_of_mods = 3;
 bool isChoicePressed = false;
 
 const int relayPin = 13;
+const int conPin = 2;
 
+const uint8_t DATA_PIN = A2;
+const uint8_t CLOCK_PIN = A3;
+
+const int SleepButtonPin = 3;
 const int ButtonPin = 4;
 const int ExitButtonPin = 5;
 const int ButtonsPin = A1; //для кнопок вправо, влево и выкл
@@ -54,13 +60,16 @@ int prev_analogBut = 0, current_analogBut = 0;
 int prev_But = 0, current_But = 0; //кнопка выбора
 int current_But_of_choice = 0;
 int prev_exitBut = 0, current_exitBut = 0;
+int prev_sleepBut = 0, current_sleepBut = 0;
 
 int amount_of_left = 0, amount_of_right = 0;
 bool exit_flag = false;
+bool sleep_flag = false;
 bool water_mode_lcd_flag = true; //флаг для того чтобы печатать выбор этого режима 1 раз в loop
 bool auto_poliv_flag = true; //аналогично чтоб на дисплее 1 раз печаталось
 
 int prev_corner = 0, current_corner = 0; //отсчитывать углы поворота для шагового двигателя
+int prev_flower = 0;
 const int fl4_corner = 0;
 const int fl3_corner = 90;
 const int fl2_corner = 180;
@@ -153,7 +162,6 @@ void DrawPlusMinus()
 // -------------------------------------------------------------------------------------------------------------
 void BodyOfWATER(int chosen_flower)
 {
-  // SetServo(chosen_flower);
   SetStepMotor(chosen_flower);
   int to_write = FLOWERS[chosen_flower - 1].to_write;
   digitalWrite(relayPin, to_write); 
@@ -216,7 +224,6 @@ void BodyOfTIME(long int pauseTime, int chosen_flower)
 
   else if (!to_write && (rtc.seconds + rtc.minutes * 60 + rtc.hours * 3600 - last_time) >= pauseTime)
   {
-    // SetServo(chosen_flower);
     SetStepMotor(chosen_flower);
     digitalWrite(relayPin, !to_write);
     FLOWERS[chosen_flower - 1].to_write = !to_write;
@@ -224,6 +231,7 @@ void BodyOfTIME(long int pauseTime, int chosen_flower)
   }
 
 }
+
 
 // -------------------------------------------------------------------------------------------------------------
 // 
@@ -237,18 +245,28 @@ void GetButtons()
 {
   prev_But = current_But;
   current_But = digitalRead(ButtonPin);//оставить
+  Serial.println(current_But);
 
   prev_exitBut = current_exitBut;
   current_exitBut = digitalRead(ExitButtonPin); //оставить
 
+  prev_sleepBut = current_sleepBut;
+  current_sleepBut = digitalRead(SleepButtonPin);
+
   if (current_exitBut && prev_exitBut != current_exitBut)
     exit_flag = true;
   
+  if (current_sleepBut && prev_sleepBut != current_sleepBut)
+    Sleeplcd();
+
+  
+  if (!current_exitBut && !current_But)
+  {  
   int analogVal = analogRead(ButtonsPin);
   int detectedButton = 0;
 
-  if      (analogVal >= 320 && analogVal <= 350)  detectedButton = 1; // Вправо
-  else if (analogVal >= 640 && analogVal <= 670)  detectedButton = 2; // Влево
+  if      (analogVal >= 900 && analogVal <= 1100)  detectedButton = 2; // Вправо
+  else if (analogVal >= 500 && analogVal <= 600)  detectedButton = 1; // Влево
 
   prev_analogBut = current_analogBut;
   current_analogBut = detectedButton;
@@ -257,15 +275,16 @@ void GetButtons()
   {
     switch (prev_analogBut) 
     {
-      case 1: // Была нажата кнопка 5 (Вправо)
+      case 1: 
         amount_of_right++;
         break;
 
-      case 2: // Была нажата кнопка 3 (Влево)
+      case 2:
         amount_of_left++;
         break;
 
     }
+  }
   }
   
   // Небольшая задержка против дребезга контактов
@@ -273,49 +292,6 @@ void GetButtons()
 }
 
 
-// void GetButtons()
-// {
-//   // 1) 640-670
-//   // 2) 590-620+
-//   // 3) 440-470+
-//   // 4) 320-350+
-//   // 5) 210-230+
-
-//   // prev_But = current_But;
-//   int current_But0 = analogRead(ButtonsPin);
-
-//   Serial.println(current_But0);
-//   if (current_But != prev_But)
-//   {
-//     if ((current_But0 <= 230) && (current_But0 >= 210))
-//     {
-//       amount_of_right++;
-//       prev_But = current_But;
-//       current_But = 5;
-//     }
-
-//     else if ((current_But0 <= 470) && (current_But0 >= 440))
-//     {
-//       amount_of_left++;  
-//       prev_But = current_But;
-//       current_But = 3;
-//     }
-
-//     else if ((current_But0 <= 620) && (current_But0 >= 590))
-//     {
-//       current_But_of_choice = 1;
-//       prev_But = current_But;
-//       current_But = 2;
-//     }
-
-//     else if ((current_But0 <= 350) && (current_But0 >= 320))
-//     {
-//       exit_flag = true;
-//       prev_But = current_But;
-//       current_But = 4;
-//     }
-//   }
-// }
 
 
 // -------------------------------------------------------------------------------------------------------------
@@ -398,8 +374,9 @@ void ChooseMode(int chosen_flower)
       water_mode_lcd_flag = false;
     }
 
-    if (current_But && prev_But != current_But)         
-      BodyOfWATER(chosen_flower); 
+      if (current_But && prev_But != current_But)         
+        BodyOfWATER(chosen_flower); 
+
                  
     auto_poliv_flag = true;
   }
@@ -464,6 +441,12 @@ void ChooseMode(int chosen_flower)
       amount_of_right = init_amount_of_right;
 
       long int pauseTime = 7 * 24 * 3600 / userNumber;
+      if (userNumber == 0)
+      {
+        water_mode_lcd_flag = true;
+        exit_flag = true;
+        return;
+      }
       FLOWERS[chosen_flower - 1].to_write = 0;
 
       while (Abs(amount_of_right - amount_of_left) % amount_of_mods == 1)   
@@ -481,6 +464,19 @@ void ChooseMode(int chosen_flower)
     }
     water_mode_lcd_flag = true; 
   }
+
+  else if (Abs(amount_of_right - amount_of_left) % amount_of_mods == 2)
+  {
+    // lcd.clear();
+    lcd.setCursor(2, 0);
+    lcd.print("temperature:");
+    lcd.setCursor(2, 1);
+    lcd.print("             ");
+    lcd.setCursor(7, 1);
+    lcd.print(temperature);
+    DrawArrows();
+  }
+
 }
 
 // -------------------------------------------------------------------------------------------------------------
@@ -506,53 +502,67 @@ void WaterIfItsTimeForWatering()
 int Abs(int num)
 {
   return (num > 0) ? num : num * (-1);
+  // у нас же по кругу, короче будет необычный модуль
+  if (num >= 0)
+    return num;
+
+  else //хз проверить бы
+  {
+    while (num < 0)
+    {
+      num = amount_of_mods + num;
+    }
+    return num;
+  }
+
 }
 
-// void SetServo(int chosen_flower)
-// {
-//   switch (chosen_flower)
-//   {
-//     case 1: servo1.write(0); break;
-//     case 2: servo1.write(90); break;
-//     case 3: servo1.write(180); break;
-//     case 4: servo1.write(270); break;
-//   }
-// }
+// -------------------------------------------------------------------------------------------------------------
+// 
+// void Con()
+// 
+// концевик реагирует на отсутствие бака с водой
+// -------------------------------------------------------------------------------------------------------------
+void Con()
+{
+  // int i = digitalRead(conPin); //разомкнуто - 1, замкнуто - 0
+  // if (i)
+  //   lcd.clear();
 
+  // while (i)
+  // {
+  //   lcd.setCursor(0, 0);
+  //   lcd.print("set box with water");
+  //   lcd.setCursor(0, 1);
+  //   lcd.print("water");
+  //   i = digitalRead(conPin);
+  // }
+}
+
+
+// -------------------------------------------------------------------------------------------------------------
+// 
+// void SetStepMotor(int chosen_flower)
+// 
+// двигаем платформу когда надо
+// -------------------------------------------------------------------------------------------------------------
 void SetStepMotor(int chosen_flower)
 {
-  if (chosen_flower == 4)
-  {
-    prev_corner = current_corner;
-    current_corner = fl4_corner - prev_corner;
-    rotateDegrees(current_corner);
-    if (current_corner < 0)
-      current_corner = 360 + current_corner;
-  }
-  else if (chosen_flower == 3)
-  {
-    prev_corner = current_corner;
-    current_corner = fl3_corner - prev_corner;
-    rotateDegrees(current_corner);
-    if (current_corner < 0)
-      current_corner = 360 + current_corner;
-  }
-  else if (chosen_flower == 2)
-  {
-    prev_corner = current_corner;
-    current_corner = fl2_corner - prev_corner;
-    rotateDegrees(current_corner);
-    if (current_corner < 0)
-      current_corner = 360 + current_corner;
-  }
-  else if (chosen_flower == 1)
-  {
-    prev_corner = current_corner;
-    current_corner = fl1_corner - prev_corner;
-    rotateDegrees(current_corner);
-    if (current_corner < 0)
-      current_corner = 360 + current_corner;
-  }
+  // только начальное положение главное нормально задать
+  rotateDegrees(((Abs(chosen_flower - prev_flower)) % 4) * 90);
+  prev_flower = chosen_flower;
+
+}
+
+void Sleeplcd()
+{
+  if (sleep_flag)
+    lcd.noBacklight();
+  else
+    lcd.backlight();
+
+  sleep_flag = !sleep_flag;
+
 }
 
 
@@ -570,6 +580,8 @@ void setup() {
   pinMode(ButtonPin, INPUT);
   pinMode(ExitButtonPin, INPUT);
 
+  pinMode(conPin, INPUT);
+
   pinMode(in1, OUTPUT);
   pinMode(in2, OUTPUT);
   pinMode(in3, OUTPUT);
@@ -586,8 +598,6 @@ void setup() {
     FLOWERS[i].last_time = rtc.seconds + rtc.minutes * 60 + rtc.hours * 3600;
   }
 
-  linkToESP.begin(9600);  // Для связи с ESP
-
   lcd.init();
   lcd.backlight();// Включаем подсветку дисплея
   lcd.createChar(0, backslash);
@@ -602,11 +612,11 @@ void setup() {
 
 void loop() {
 
+  amount_of_left = 0; amount_of_right = 0;
   detectTemperature();
   lcd.clear();
-  lcd.setCursor(2, 0);
-  lcd.print("choose mode");
-  detectTemperature();
+  // // lcd.setCursor(2, 0);
+  // // lcd.print("choose mode");
 
   GetButtons();           
   int chosen_flower = ChooseFlower();
@@ -620,6 +630,7 @@ void loop() {
     GetButtons();           
     ChooseMode(chosen_flower);
     WaterIfItsTimeForWatering();
+    Con();
   }
 
   exit_flag = false;
